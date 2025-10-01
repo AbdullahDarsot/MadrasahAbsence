@@ -1,13 +1,11 @@
 package com.school;
 
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
@@ -15,73 +13,86 @@ import io.github.bonigarcia.wdm.WebDriverManager;
 public class AttendanceScraper {
     private static final Logger logger = Logger.getLogger(AttendanceScraper.class.getName());
 
-    public static class Student {
-        String name;
-        String phone;
-        String status;
+    // =======================
+    // 🔹 Config
+    // =======================
+    private static final String LOGIN_URL = "https://mms.mtiuk.org";
+    private static final String ATTENDANCE_URL = "https://mms.mtiuk.org/register.php?mode=attendance";
 
-        public Student(String name, String phone, String status) {
-            this.name = name;
-            this.phone = phone;
-            this.status = status;
-        }
+    private static final String USER_EMAIL = "your-email"; // TODO: load securely from env/config
+    private static final String USER_PASSWORD = "your-password";
 
-        @Override
-        public String toString() {
-            return "Student{name='" + name + "', phone='" + phone + "', status='" + status + "'}";
-        }
-    }
+    // Path to numbers CSV
+    private static final String CSV_PATH = "src/main/resources/numbers.csv";
 
     public static void main(String[] args) {
         logger.info("Starting Attendance Scraper...");
 
         WebDriverManager.chromedriver().setup();
         WebDriver driver = new ChromeDriver();
+        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
+        driver.manage().window().maximize();
 
         try {
-            // 1. Open login page
-            String loginUrl = "https://mms.mtiuk.org";
-            logger.info("Navigating to login page: " + loginUrl);
-            driver.get(loginUrl);
+            // Page objects
+            LoginPage loginPage = new LoginPage(driver);
+            AttendancePage attendancePage = new AttendancePage(driver);
 
-            // 2. Log in
-            logger.info("Entering login credentials...");
-            driver.findElement(By.name("email")).sendKeys("info@mtiuk.org");
-            driver.findElement(By.name("password")).sendKeys("gee");
-            driver.findElement(By.xpath("//button[normalize-space()='Login']")).click();
-            logger.info("Login submitted.");
-
-            // 3. Go to attendance page
-            String attendanceUrl = "https://mms.mtiuk.org/register.php?mode=absent-calendar";
-            logger.info("Navigating to attendance page: " + attendanceUrl);
-            driver.get(attendanceUrl);
-
-            // 4. Open the modal with absentees (adjust selector if modal needs to be clicked)
-            driver.findElement(By.cssSelector("span[data-target='#absent202509290']")).click();
+            // 1. Login
+            logger.info("Logging in...");
+            driver.get(LOGIN_URL);
+            loginPage.login(USER_EMAIL, USER_PASSWORD);
             Thread.sleep(1000);
-            //WebElement table = driver.findElement(By.xpath("//*[@id=\"absent202509290\"]/div/div/div[2]/a[1]")); // adjust ID if needed
-            logger.info("Attendance container found.");
 
-            // 5. Locate the modal body containing absentees
-            WebElement modalBody = driver.findElement(By.xpath("//*[@id=\"absent202509290\"]/div/div/div[2]"));
-            List<WebElement> absentLinks = modalBody.findElements(By.cssSelector("a.badge-danger"));
+            // 2. Go to attendance
+            logger.info("Opening attendance page...");
+            driver.get(ATTENDANCE_URL);
 
-            List<Student> absentees = new ArrayList<>();
-            logger.info("Total absentees found: " + absentLinks.size());
+            // 3. Apply filters
+            Thread.sleep(1000);
+            attendancePage.openFilters();
+            Thread.sleep(1000);
+            attendancePage.selectQuality();
+            Thread.sleep(1000);
+            attendancePage.enterPercentage("50");
+            Thread.sleep(1000);
+            attendancePage.setDateRange("30092025", "30092025");
+            Thread.sleep(1000);
+            attendancePage.selectAboveBelow("Below");
+            Thread.sleep(1000);
+            attendancePage.selectFilterResults();
+            Thread.sleep(2000); // wait for table to refresh
 
-            for (WebElement link : absentLinks) {
-                String name = link.getText().trim();
-                Student student = new Student(name, "", "Absent"); // phone unknown
-                absentees.add(student);
-                logger.warning("Absent detected → " + name);
-            }
+            logger.info("Filters applied successfully. Fetching absentees...");
 
-            // 6. Print absent summary
-            logger.info("=== Final Report ===");
+            // 4. Scrape students list
+            List<String[]> absentees = attendancePage.getAbsentees();
+
             if (absentees.isEmpty()) {
-                logger.info("✅ No absentees found today.");
+                logger.info("No absentees found.");
             } else {
-                absentees.forEach(s -> logger.info("❌ Absent: " + s));
+                logger.info("Absentees found. Sending WhatsApp messages...");
+
+                // 🔹 WhatsApp integration
+                WhatsAppMessenger messenger = new WhatsAppMessenger(CSV_PATH);
+                messenger.openWhatsApp();
+                Thread.sleep(15000); // wait for QR scan
+
+                for (String[] row : absentees) {
+                    String studentName = row[0];
+                    String phoneNumber = messenger.getPhoneForStudent(studentName);
+
+                    if (phoneNumber != null && !phoneNumber.isEmpty()) {
+                        String message = "Assalamu Alaikum, we noticed that " + studentName +
+                                " was absent today. Could you please let us know the reason?";
+                        messenger.sendMessage(phoneNumber, message);
+                        System.out.println("✅ Sent message for " + studentName + " (" + phoneNumber + ")");
+                    } else {
+                        System.out.println("⚠️ No phone number found for " + studentName);
+                    }
+                }
+
+                messenger.close();
             }
 
         } catch (Exception e) {

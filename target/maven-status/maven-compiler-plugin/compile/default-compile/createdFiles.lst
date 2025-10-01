@@ -1,2 +1,5 @@
-com\school\AttendanceScraper$Student.class
+com\school\LoginPage.class
+com\school\CSVReader.class
+com\school\WhatsAppMessenger.class
+com\school\AttendancePage.class
 com\school\AttendanceScraper.class
