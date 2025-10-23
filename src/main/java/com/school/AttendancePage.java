@@ -1,5 +1,7 @@
 package com.school;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,10 +41,26 @@ public class AttendancePage {
         driver.findElement(percentageOption).sendKeys(value);
     }
 
-    public void setDateRange(String fromDate, String toDate) {
-        driver.findElement(fromDatePicker).sendKeys(fromDate);
-        driver.findElement(toDatePicker).sendKeys(toDate);
-    }
+    // public void setDateRange(String fromDate, String toDate) {
+    //     driver.findElement(fromDatePicker).sendKeys(fromDate);
+    //     driver.findElement(toDatePicker).sendKeys(toDate);
+    // }
+
+    public void setDateRange() {
+    // Get today's date
+    LocalDate today = LocalDate.now();
+
+    // Format it according to your datepicker format (e.g., MM/dd/yyyy)
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    String todayFormatted = today.format(formatter);
+
+    // Example: set both fromDate and toDate as today
+    driver.findElement(fromDatePicker).clear();
+    driver.findElement(fromDatePicker).sendKeys(todayFormatted);
+
+    driver.findElement(toDatePicker).clear();
+    driver.findElement(toDatePicker).sendKeys(todayFormatted);
+}
 
     public void selectAboveBelow(String option) {
         WebElement dropdown = driver.findElement(aboveBelowDropdown);

@@ -2,93 +2,97 @@ package com.school;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.openqa.selenium.Capabilities;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.remote.RemoteWebDriver;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
 
 public class AttendanceScraper {
     private static final Logger logger = Logger.getLogger(AttendanceScraper.class.getName());
 
-    // =======================
-    // 🔹 Config
-    // =======================
     private static final String LOGIN_URL = "https://mms.mtiuk.org";
     private static final String ATTENDANCE_URL = "https://mms.mtiuk.org/register.php?mode=attendance";
 
-    private static final String USER_EMAIL = "your-email"; // TODO: load securely from env/config
+    private static final String USER_EMAIL = "your-email";
     private static final String USER_PASSWORD = "your-password";
 
-    // Path to numbers CSV
     private static final String CSV_PATH = "src/main/resources/numbers.csv";
+
+    // Normalize scraped names
+    private static String normalizeScrapedName(String name) {
+        if (name == null) return "";
+        return name.replaceAll("[^\\p{L} ]", "")
+                   .replaceAll("\\s+", " ")
+                   .trim()
+                   .toLowerCase();
+    }
 
     public static void main(String[] args) {
         logger.info("Starting Attendance Scraper...");
 
         WebDriverManager.chromedriver().setup();
         WebDriver driver = new ChromeDriver();
-        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
-        driver.manage().window().maximize();
 
         try {
-            // Page objects
+            // Browser info
+            Capabilities caps = ((RemoteWebDriver) driver).getCapabilities();
+            System.out.println("Browser: " + caps.getBrowserName() + " " + caps.getBrowserVersion());
+            System.out.println("Driver version: " + caps.getCapability("chromedriverVersion"));
+
+            driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
+            driver.manage().window().maximize();
+
             LoginPage loginPage = new LoginPage(driver);
             AttendancePage attendancePage = new AttendancePage(driver);
 
-            // 1. Login
+            // 1️⃣ Login
             logger.info("Logging in...");
             driver.get(LOGIN_URL);
             loginPage.login(USER_EMAIL, USER_PASSWORD);
-            Thread.sleep(1000);
 
-            // 2. Go to attendance
-            logger.info("Opening attendance page...");
+            // 2️⃣ Attendance page
             driver.get(ATTENDANCE_URL);
 
-            // 3. Apply filters
-            Thread.sleep(1000);
+            // 3️⃣ Apply filters
             attendancePage.openFilters();
-            Thread.sleep(1000);
             attendancePage.selectQuality();
-            Thread.sleep(1000);
             attendancePage.enterPercentage("50");
-            Thread.sleep(1000);
-            attendancePage.setDateRange("30092025", "30092025");
-            Thread.sleep(1000);
+            attendancePage.setDateRange();
             attendancePage.selectAboveBelow("Below");
-            Thread.sleep(1000);
             attendancePage.selectFilterResults();
-            Thread.sleep(2000); // wait for table to refresh
 
-            logger.info("Filters applied successfully. Fetching absentees...");
+            logger.info("Filters applied. Fetching absentees...");
 
-            // 4. Scrape students list
             List<String[]> absentees = attendancePage.getAbsentees();
 
             if (absentees.isEmpty()) {
                 logger.info("No absentees found.");
             } else {
-                logger.info("Absentees found. Sending WhatsApp messages...");
-
-                // 🔹 WhatsApp integration
                 WhatsAppMessenger messenger = new WhatsAppMessenger(CSV_PATH);
                 messenger.openWhatsApp();
-                Thread.sleep(15000); // wait for QR scan
+                System.out.println("Please scan WhatsApp QR code and press Enter when done...");
+                new Scanner(System.in).nextLine(); // wait for manual QR scan
 
                 for (String[] row : absentees) {
-                    String studentName = row[0];
-                    String phoneNumber = messenger.getPhoneForStudent(studentName);
+                    String rawName = row[0];
+                    String normalizedName = normalizeScrapedName(rawName);
+
+                    System.out.println("Looking up: '" + normalizedName + "'");
+                    String phoneNumber = messenger.getPhoneForStudent(normalizedName);
 
                     if (phoneNumber != null && !phoneNumber.isEmpty()) {
-                        String message = "Assalamu Alaikum, we noticed that " + studentName +
+                        String message = "Assalamu Alaikum, we noticed that " + rawName +
                                 " was absent today. Could you please let us know the reason?";
                         messenger.sendMessage(phoneNumber, message);
-                        System.out.println("✅ Sent message for " + studentName + " (" + phoneNumber + ")");
+                        System.out.println("Sent message for " + rawName + " (" + phoneNumber + ")");
                     } else {
-                        System.out.println("⚠️ No phone number found for " + studentName);
+                        System.out.println("No phone number found for " + rawName);
                     }
                 }
 
@@ -96,9 +100,8 @@ public class AttendanceScraper {
             }
 
         } catch (Exception e) {
-            logger.log(Level.SEVERE, "An error occurred while scraping!", e);
+            logger.log(Level.SEVERE, "An error occurred!", e);
         } finally {
-            logger.info("Closing browser...");
             driver.quit();
         }
     }
