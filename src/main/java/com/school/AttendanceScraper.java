@@ -17,7 +17,7 @@ public class AttendanceScraper {
     private static final Logger logger = Logger.getLogger(AttendanceScraper.class.getName());
 
     private static final String LOGIN_URL = "https://mms.mtiuk.org";
-    private static final String ATTENDANCE_URL = "https://mms.mtiuk.org/register.php?mode=attendance";
+    private static final String ATTENDANCE_URL = "https://mms.mtiuk.org/register.php?mode=absent-calendar";
 
     private static final String USER_EMAIL = "your-email";
     private static final String USER_PASSWORD = "your-password";
@@ -56,31 +56,22 @@ public class AttendanceScraper {
             driver.get(LOGIN_URL);
             loginPage.login(USER_EMAIL, USER_PASSWORD);
 
-            // 2️⃣ Attendance page
+            // 2️⃣ Navigate to Attendance page
             driver.get(ATTENDANCE_URL);
 
-            // 3️⃣ Apply filters
-            attendancePage.openFilters();
-            attendancePage.selectQuality();
-            attendancePage.enterPercentage("50");
-            attendancePage.setDateRange();
-            attendancePage.selectAboveBelow("Below");
-            attendancePage.selectFilterResults();
-
-            logger.info("Filters applied. Fetching absentees...");
-
-            List<String[]> absentees = attendancePage.getAbsentees();
+            // 3️⃣ Fetch today's unauthorised absentees
+            logger.info("Fetching today's unauthorised absentees...");
+            List<String> absentees = attendancePage.getTodayUnauthorisedAbsentees();
 
             if (absentees.isEmpty()) {
-                logger.info("No absentees found.");
+                logger.info("No unauthorised absentees found today.");
             } else {
                 WhatsAppMessenger messenger = new WhatsAppMessenger(CSV_PATH);
                 messenger.openWhatsApp();
                 System.out.println("Please scan WhatsApp QR code and press Enter when done...");
                 new Scanner(System.in).nextLine(); // wait for manual QR scan
 
-                for (String[] row : absentees) {
-                    String rawName = row[0];
+                for (String rawName : absentees) {
                     String normalizedName = normalizeScrapedName(rawName);
 
                     System.out.println("Looking up: '" + normalizedName + "'");

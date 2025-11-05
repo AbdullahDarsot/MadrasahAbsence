@@ -1,96 +1,76 @@
 package com.school;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
 
 public class AttendancePage {
     private WebDriver driver;
-
-    // Locators
-    private static final By moreFilters = By.xpath("//*[@id='filter-btn']");
-    private static final By qualityRadioButton = By.cssSelector("input[type='radio'][name='what_above_below'][value='quality']");
-    private static final By percentageOption = By.cssSelector("input[name='ab_amount']");
-    private static final By fromDatePicker = By.cssSelector("input[type='date'][name='date_from']");
-    private static final By toDatePicker = By.cssSelector("input[type='date'][name='date_to']");
-    private static final By aboveBelowDropdown = By.cssSelector("select[name='above_below']");
-    private static final By filterResultsButton = By.xpath("//button[contains(@class,'btn-info')]");
-
-    // Table locator
-    private static final By attendanceTable = By.id("attendance");
+    private WebDriverWait wait;
 
     public AttendancePage(WebDriver driver) {
         this.driver = driver;
-    }
-
-    public void openFilters() {
-        driver.findElement(moreFilters).click();
-    }
-
-    public void selectQuality() {
-        driver.findElement(qualityRadioButton).click();
-    }
-
-    public void enterPercentage(String value) {
-        driver.findElement(percentageOption).clear();
-        driver.findElement(percentageOption).sendKeys(value);
-    }
-
-    // public void setDateRange(String fromDate, String toDate) {
-    //     driver.findElement(fromDatePicker).sendKeys(fromDate);
-    //     driver.findElement(toDatePicker).sendKeys(toDate);
-    // }
-
-    public void setDateRange() {
-    // Get today's date
-    LocalDate today = LocalDate.now();
-
-    // Format it according to your datepicker format (e.g., MM/dd/yyyy)
-    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-    String todayFormatted = today.format(formatter);
-
-    // Example: set both fromDate and toDate as today
-    driver.findElement(fromDatePicker).clear();
-    driver.findElement(fromDatePicker).sendKeys(todayFormatted);
-
-    driver.findElement(toDatePicker).clear();
-    driver.findElement(toDatePicker).sendKeys(todayFormatted);
-}
-
-    public void selectAboveBelow(String option) {
-        WebElement dropdown = driver.findElement(aboveBelowDropdown);
-        org.openqa.selenium.support.ui.Select select = new org.openqa.selenium.support.ui.Select(dropdown);
-        select.selectByVisibleText(option);
-    }
-
-    public void selectFilterResults() {
-        driver.findElement(filterResultsButton).click();
+        this.wait = new WebDriverWait(driver, Duration.ofSeconds(10));
     }
 
     /**
-     * Extracts absentee details from the attendance table.
-     * @return List of String arrays, each array representing one row [Student, Class, Entries, Present, Absent, Late, %age, Strict %age, Quality].
+     * Clicks today's badge on the calendar and returns a list of unauthorised absentees.
      */
-    public List<String[]> getAbsentees() {
-        List<String[]> absentees = new ArrayList<>();
+    public List<String> getTodayUnauthorisedAbsentees() {
+        try {
+            LocalDate today = LocalDate.now();
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+            String todayIdSuffix = today.format(formatter) + "0"; // 0 = unauthorised
+            System.out.println("Looking for today's badge with suffix: " + todayIdSuffix);
 
-        WebElement table = driver.findElement(attendanceTable);
-        List<WebElement> rows = table.findElements(By.xpath(".//tbody/tr"));
+            // Find all badges and filter by today's suffix
+            List<WebElement> badges = driver.findElements(By.cssSelector("[data-target]"));
+            WebElement todayBadge = badges.stream()
+                    .filter(b -> b.getAttribute("data-target").contains(todayIdSuffix))
+                    .findFirst()
+                    .orElse(null);
 
-        for (WebElement row : rows) {
-            List<WebElement> cols = row.findElements(By.tagName("td"));
-            String[] rowData = new String[cols.size()];
-            for (int i = 0; i < cols.size(); i++) {
-                rowData[i] = cols.get(i).getText().trim();
+            if (todayBadge == null) {
+                System.out.println("No badge found for today!");
+                return Collections.emptyList();
             }
-            absentees.add(rowData);
-        }
 
-        return absentees;
+            // Click the badge
+            todayBadge.click();
+            System.out.println("Clicked today's badge.");
+
+            // Wait for modal
+            String modalId = todayBadge.getAttribute("data-target").replace("#", "");
+            WebElement modalBody = wait.until(ExpectedConditions.visibilityOfElementLocated(
+                    By.cssSelector("#" + modalId + " .modal-body")));
+
+            // Extract student names
+            List<WebElement> students = modalBody.findElements(By.tagName("a"));
+            List<String> studentNames = students.stream()
+                    .map(WebElement::getText)
+                    .map(name -> name.replace("×", "").trim())
+                    .collect(Collectors.toList());
+
+            // Close modal
+            WebElement closeButton = driver.findElement(By.cssSelector("#" + modalId + " .modal-footer button"));
+            closeButton.click();
+            System.out.println("Closed the modal.");
+
+            return studentNames;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("Error fetching today's absentees.");
+            return Collections.emptyList();
+        }
     }
 }
