@@ -25,52 +25,47 @@ public class AttendancePage {
     /**
      * Clicks today's badge on the calendar and returns a list of unauthorised absentees.
      */
-    public List<String> getTodayUnauthorisedAbsentees() {
-        try {
-            LocalDate today = LocalDate.now();
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
-            String todayIdSuffix = today.format(formatter) + "0"; // 0 = unauthorised
-            System.out.println("Looking for today's badge with suffix: " + todayIdSuffix);
+public List<String> getTodayUnauthorisedAbsentees() {
+    try {
+        LocalDate today = LocalDate.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd");
+        String modalId = "#absent" + today.format(formatter) + "0";
 
-            // Find all badges and filter by today's suffix
-            List<WebElement> badges = driver.findElements(By.cssSelector("[data-target]"));
-            WebElement todayBadge = badges.stream()
-                    .filter(b -> b.getAttribute("data-target").contains(todayIdSuffix))
-                    .findFirst()
-                    .orElse(null);
+        // Find ONLY unauthorised absence badge for today
+        WebElement todayBadge = driver.findElements(
+                By.cssSelector("span.badge-light[data-target^='#absent'][data-target$='0']"))
+            .stream()
+            .filter(b -> modalId.equals(b.getAttribute("data-target")))
+            .findFirst()
+            .orElse(null);
 
-            if (todayBadge == null) {
-                System.out.println("No badge found for today!");
-                return Collections.emptyList();
-            }
-
-            // Click the badge
-            todayBadge.click();
-            System.out.println("Clicked today's badge.");
-
-            // Wait for modal
-            String modalId = todayBadge.getAttribute("data-target").replace("#", "");
-            WebElement modalBody = wait.until(ExpectedConditions.visibilityOfElementLocated(
-                    By.cssSelector("#" + modalId + " .modal-body")));
-
-            // Extract student names
-            List<WebElement> students = modalBody.findElements(By.tagName("a"));
-            List<String> studentNames = students.stream()
-                    .map(WebElement::getText)
-                    .map(name -> name.replace("×", "").trim())
-                    .collect(Collectors.toList());
-
-            // Close modal
-            WebElement closeButton = driver.findElement(By.cssSelector("#" + modalId + " .modal-footer button"));
-            closeButton.click();
-            System.out.println("Closed the modal.");
-
-            return studentNames;
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("Error fetching today's absentees.");
+        if (todayBadge == null) {
+            System.out.println("No unauthorised absences found for today.");
             return Collections.emptyList();
         }
+
+        todayBadge.click();
+
+        WebElement modalBody = wait.until(ExpectedConditions.visibilityOfElementLocated(
+                By.cssSelector(modalId + " .modal-body")));
+
+        // Only pull unauthorised absence users (badge-light)
+        List<String> studentNames = modalBody
+                .findElements(By.cssSelector("a.badge-light"))
+                .stream()
+                .map(WebElement::getText)
+                .map(t -> t.replace("×", "").trim())
+                .collect(Collectors.toList());
+
+        // close modal
+        driver.findElement(By.cssSelector(modalId + " .modal-footer button")).click();
+
+        return studentNames;
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        return Collections.emptyList();
     }
+}
+
 }

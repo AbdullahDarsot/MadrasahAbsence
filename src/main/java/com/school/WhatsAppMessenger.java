@@ -32,32 +32,42 @@ public class WhatsAppMessenger {
         loadNumbers(csvPath);
     }
 
-    // Load CSV numbers and normalize names
+    // Load CSV where name and number are in the same cell
     private void loadNumbers(String csvPath) throws Exception {
         try (BufferedReader br = new BufferedReader(new FileReader(csvPath))) {
             String line;
             br.readLine(); // skip header
+
             while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",");
-                if (parts.length == 2) {
-                    String student = normalizeName(parts[0]);
-                    String phone = parts[1].trim().replaceAll("[^0-9]", ""); // remove + or spaces
-                    numbersMap.put(student, phone);
+                line = line.replace("\uFEFF", "").trim();
+                if (line.isEmpty()) continue;
+
+                // Extract phone = all digits
+                String phone = line.replaceAll("[^0-9]", "");
+
+                // Extract student name = everything except digits
+                String student = line.replaceAll("[0-9]", "")
+                                     .replaceAll("[^\\p{L} ]", "")
+                                     .replaceAll("\\s+", " ")
+                                     .trim()
+                                     .toLowerCase();
+
+                if (student.isEmpty() || phone.isEmpty()) {
+                    System.out.println("⚠️ Skipping invalid line: " + line);
+                    continue;
                 }
+
+                numbersMap.put(student, phone);
             }
         }
-        System.out.println("Loaded " + numbersMap.size() + " phone numbers.");
-        System.out.println("CSV keys:");
-        for (String key : numbersMap.keySet()) {
-            System.out.println("'" + key + "'");
-        }
+
+        System.out.println("✅ Loaded " + numbersMap.size() + " phone numbers.");
     }
 
-    // Normalize names: remove +, lowercase, remove non-letter chars, collapse spaces
+    // Normalize names
     private String normalizeName(String name) {
         if (name == null) return "";
-        return name.replace("+", "")
-                   .replaceAll("[^\\p{L} ]", "")
+        return name.replaceAll("[^\\p{L} ]", "")
                    .replaceAll("\\s+", " ")
                    .trim()
                    .toLowerCase();
@@ -65,34 +75,71 @@ public class WhatsAppMessenger {
 
     public void openWhatsApp() {
         driver.get("https://web.whatsapp.com/");
-        System.out.println("Please scan the QR code to log in.");
+        System.out.println("📱 Please scan the QR code to log in.");
     }
 
     public void sendMessage(String phoneNumber, String message) throws Exception {
-        if (phoneNumber == null || phoneNumber.isEmpty()) return;
+        if (phoneNumber == null || phoneNumber.isEmpty()) {
+            // ✅ Skip silently
+            return;
+        }
 
-        // Search for contact
-        WebElement searchBox = wait.until(ExpectedConditions.elementToBeClickable(
-                By.xpath("//div[@contenteditable='true'][@data-tab='3']")));
-        searchBox.clear();
-        searchBox.sendKeys(phoneNumber);
-        searchBox.sendKeys(Keys.ENTER);
+        try {
+            WebElement searchBox = wait.until(
+                    ExpectedConditions.elementToBeClickable(
+                            By.xpath("//div[@contenteditable='true'][@data-tab='3']")
+                    )
+            );
 
-        // Wait for message box
-        WebElement messageBox = wait.until(ExpectedConditions.elementToBeClickable(
-                By.xpath("//div[@contenteditable='true'][@data-tab='10']")));
-        messageBox.sendKeys(message);
+            searchBox.clear();
+            searchBox.sendKeys(phoneNumber);
+            searchBox.sendKeys(Keys.ENTER);
 
-        // Click send
-        WebElement sendBtn = driver.findElement(By.cssSelector("div[aria-label='Send'][role='button']"));
-        sendBtn.click();
+            WebElement messageBox = wait.until(
+                    ExpectedConditions.elementToBeClickable(
+                            By.xpath("//div[@contenteditable='true'][@data-tab='10']")
+                    )
+            );
 
-        Thread.sleep(1000);
+            messageBox.sendKeys(message);
+
+            WebElement sendBtn = driver.findElement(By.cssSelector("div[aria-label='Send'][role='button']"));
+            sendBtn.click();
+
+            Thread.sleep(1000);
+
+        } catch (Exception e) {
+            // ✅ On any failure (e.g., invalid number), skip silently
+            System.out.println("⚠️ Could not send message to " + phoneNumber + " — skipping.");
+        }
     }
 
-    // Get phone number for a normalized student name
+    // Return clean, validated number or null if invalid
     public String getPhoneForStudent(String studentName) {
-        return numbersMap.get(normalizeName(studentName));
+        String key = normalizeName(studentName);
+
+        if (!numbersMap.containsKey(key)) {
+            System.out.println("⚠️ No number found for: " + studentName + " — skipping.");
+            return null;
+        }
+
+        String number = numbersMap.get(key);
+
+        // Clean again
+        number = number.replaceAll("[^0-9]", "").trim();
+
+        // Validate digits only
+        if (!number.matches("\\d{10,15}")) {
+            System.out.println("⚠️ Invalid number for " + studentName + ": " + number + " — skipping.");
+            return null;
+        }
+
+        // UK conversion 07 → 447
+        if (number.startsWith("07")) {
+            number = "44" + number.substring(1);
+        }
+
+        return number;
     }
 
     public void close() {

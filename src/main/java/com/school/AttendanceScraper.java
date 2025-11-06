@@ -1,6 +1,10 @@
 package com.school;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 import java.util.logging.Level;
@@ -23,6 +27,7 @@ public class AttendanceScraper {
     private static final String USER_PASSWORD = "your-password";
 
     private static final String CSV_PATH = "src/main/resources/numbers.csv";
+    private static final String SKIPPED_CSV_PATH = "src/main/resources/skipped_students.csv";
 
     // Normalize scraped names
     private static String normalizeScrapedName(String name) {
@@ -71,23 +76,49 @@ public class AttendanceScraper {
                 System.out.println("Please scan WhatsApp QR code and press Enter when done...");
                 new Scanner(System.in).nextLine(); // wait for manual QR scan
 
+                List<String> skippedStudents = new ArrayList<>();
+
                 for (String rawName : absentees) {
                     String normalizedName = normalizeScrapedName(rawName);
 
                     System.out.println("Looking up: '" + normalizedName + "'");
                     String phoneNumber = messenger.getPhoneForStudent(normalizedName);
 
-                    if (phoneNumber != null && !phoneNumber.isEmpty()) {
-                        String message = "Assalamu Alaikum, we noticed that " + rawName +
-                                " was absent today. Could you please let us know the reason?";
-                        messenger.sendMessage(phoneNumber, message);
-                        System.out.println("Sent message for " + rawName + " (" + phoneNumber + ")");
-                    } else {
-                        System.out.println("No phone number found for " + rawName);
+                    if (phoneNumber == null) {
+                        System.out.println("Skipping " + rawName + " due to missing or invalid number.");
+                        skippedStudents.add(rawName);
+                        continue; // skip
                     }
+
+                    String message = "Assalamu Alaikum, we noticed that " + rawName +
+                            " was absent today. Could you please let us know the reason?";
+
+                    messenger.sendMessage(phoneNumber, message);
+                    System.out.println("✅ Sent message for " + rawName + " (" + phoneNumber + ")");
                 }
 
                 messenger.close();
+
+                // 4️⃣ Append skipped students to CSV
+                if (!skippedStudents.isEmpty()) {
+                    File file = new File(SKIPPED_CSV_PATH);
+                    boolean fileExists = file.exists();
+
+                    try (PrintWriter pw = new PrintWriter(new FileWriter(file, true))) { // append mode
+                        if (!fileExists) {
+                            pw.println("Student Name,Date"); // header
+                        }
+
+                        String today = java.time.LocalDate.now().toString();
+                        for (String s : skippedStudents) {
+                            pw.println(s + "," + today);
+                        }
+                    }
+
+                    System.out.println("\n⚠️ Skipped students appended to " + SKIPPED_CSV_PATH);
+                } else {
+                    System.out.println("\n✅ All students were messaged successfully.");
+                }
             }
 
         } catch (Exception e) {
